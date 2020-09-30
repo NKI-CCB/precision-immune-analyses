@@ -1,0 +1,3 @@
+Steps to make the plots:
+ 1. Put the input file `clin_DBL_v_str_dens.tsv` in the data folder.
+ 2. Make the plots: `Rscript src/beeswarm_clin_dens.R`
