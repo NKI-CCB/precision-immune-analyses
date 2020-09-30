@@ -80,8 +80,14 @@ non_par_test <- function(density, clinical_value) {
 tests <- clin_density %>%
     group_by(cell_type, clinical_variable) %>%
     summarise(test = non_par_test(density, clinical_value))
-clin_density <- left_join(clin_density, tests)
-clin_density <- mutate(clin_density, significant = test$p.value < 0.05)
+dens_summary <- clin_density %>%
+    group_by(cell_type) %>%
+    summarize(max_dens=max(density))
+significance_annot <- full_join(
+    select(clin_density, cell_type, clinical_variable, clinical_value, clin_var_val),
+    transmute(tests, cell_type, clinical_variable, significant = test$p.value < 0.05)) %>%
+    left_join(dens_summary) %>%
+    filter(significant)
 
 #################
 # Make the plot #
@@ -89,17 +95,20 @@ clin_density <- mutate(clin_density, significant = test$p.value < 0.05)
 
 pdf('plots/boxplot_density_clinical_variables.pdf', 7, 10)
 ggplot(clin_density, aes(y=density, x=clin_var_val)) +
-    geom_boxplot(aes(colour = significant), outlier.alpha=0.0) +
-    geom_jitter(width = 0.2, height = 0, shape=1, size=0.7) +
+    geom_boxplot(outlier.alpha=0.0) +
+    geom_jitter(aes(colour = cell_type), width = 0.2, height = 0, shape=1, size=0.7) +
+    geom_point(aes(y=0.95*max_dens), shape=8, size=0.7, data=significance_annot) +
     coord_flip() +
     facet_wrap(vars(cell_type), scales = "free_x", ncol=4,
                labeller = labeller(cell_type = celltype_labels)) +
     scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA)) +
-    scale_x_discrete("", limits=levels(clin_density$clin_val_var)) +
-    scale_colour_manual(values = c("black", "red")) +
+    scale_x_discrete("") +
+    scale_colour_brewer(palette='Dark2') +
+    guides(colour = 'none') +
     theme_classic() +
     theme(strip.background = element_blank(),
-          axis.line.y =element_blank(),  
+          axis.line.y = element_blank(),
+          panel.spacing.x = unit(5, 'pt'),
           axis.ticks.y = element_blank())
 dev.off()
 
