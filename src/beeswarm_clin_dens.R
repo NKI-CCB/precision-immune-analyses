@@ -82,7 +82,7 @@ tests <- clin_density %>%
     summarise(test = non_par_test(density, clinical_value))
 dens_summary <- clin_density %>%
     group_by(cell_type) %>%
-    summarize(max_dens=max(density))
+    summarize(max_dens=max(density, na.rm=T))
 significance_annot <- left_join(
     transmute(tests, cell_type, clinical_variable, significant = test$p.value < 0.05),
     clin_density %>%
