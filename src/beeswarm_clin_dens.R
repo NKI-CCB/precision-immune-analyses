@@ -31,9 +31,9 @@ col_spec <- c(
     structure(map(clin_vars, ~ col_character()), names=clin_vars))
 
 col_spec[['t_number']] <- col_character()
-col_spec[['Cascon']] <- col_factor(levels=c(0, 1))
-col_spec[['fibrosis_yn']] <- col_factor(levels=c(0, 1))
-col_spec[['grade']] <- col_factor(levels=c(1, 2, 3))
+col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
+col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
+col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
 clin_density <- read_tsv(
         'data/clin_DBL_v_str_dens.tsv',
         col_types = do.call(cols_only, col_spec)) %>%
