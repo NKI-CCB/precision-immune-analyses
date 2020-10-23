@@ -83,15 +83,20 @@ tests <- clin_density %>%
 dens_summary <- clin_density %>%
     group_by(cell_type) %>%
     summarize(max_dens=max(density, na.rm=T))
+
 significance_annot <- left_join(
-    transmute(tests, cell_type, clinical_variable, significant = test$p.value < 0.05),
+    transmute(tests, cell_type, clinical_variable, p_value = test$p.value),
     clin_density %>%
         select(clinical_variable, clin_var_val) %>%
         distinct() %>%
         group_by(clinical_variable) %>%
-        summarize(clin_var_val = median(unclass(clin_var_val)))) %>%
+        summarize(clin_var_val = median(unclass(clin_var_val))))
+significance_annot <- significance_annot %>%
     left_join(dens_summary) %>%
-    filter(significant)
+    mutate(stars = case_when(
+        p_value < 0.001 ~ '***',
+        p_value < 0.01 ~ '**',
+        p_value < 0.05 ~ '*'))
 
 #################
 # Make the plot #
@@ -101,7 +106,7 @@ pdf('plots/boxplot_density_clinical_variables.pdf', 7, 10)
 ggplot(clin_density, aes(y=density, x=clin_var_val)) +
     geom_boxplot(outlier.alpha=0.0) +
     geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
-    geom_point(aes(y=0.95*max_dens), shape=8, size=0.7, data=significance_annot) +
+    geom_text(aes(y=0.95*max_dens, label=stars), data=significance_annot) +
     geom_hline(yintercept = 0) +
     coord_flip() +
     facet_wrap(vars(cell_type), scales = "free_x", ncol=4,
