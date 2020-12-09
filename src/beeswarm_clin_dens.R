@@ -1,6 +1,7 @@
 # load packages
 library(readr)
 library(dplyr)
+library(coin)
 library(forcats)
 library(RColorBrewer)
 library(tidyr)
@@ -9,6 +10,21 @@ library(broom)
 library(tibble)
 library(purrr)
 library(rprojroot)
+
+tidy.ScalarIndependenceTest <- function(x) {
+    tibble::tibble(
+        p.value = coin::pvalue(x),
+        statistic = coin::statistic(x),
+        method = x@method,
+        alternative = x@statistic@alternative)
+}
+
+tidy.QuadTypeIndependenceTest <- function(x) {
+    tibble::tibble(
+        p.value = coin::pvalue(x),
+        statistic = coin::statistic(x),
+        method = x@method)
+}
 
 setwd(find_root(is_git_root))
 
@@ -71,9 +87,9 @@ clin_density <- clin_density %>% mutate(
 non_par_test <- function(density, clinical_value) {
   clinical_value <- fct_drop(clinical_value)
   if (length(levels(clinical_value)) == 2) {
-    tidy(wilcox.test(density ~ clinical_value))
+    tidy(coin::wilcox_test(density ~ clinical_value))
   } else {
-    tidy(kruskal.test(density ~ clinical_value))
+    tidy(coin::kruskal_test(density ~ clinical_value))
   }
 }
 
