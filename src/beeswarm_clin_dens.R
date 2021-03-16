@@ -10,10 +10,11 @@ library(broom)
 library(tibble)
 library(purrr)
 library(rprojroot)
+library(writexl)
 
 tidy.ScalarIndependenceTest <- function(x) {
     tibble::tibble(
-        p.value = coin::pvalue(x),
+        p.value = as.numeric(coin::pvalue(x)),
         statistic = coin::statistic(x),
         method = x@method,
         alternative = x@statistic@alternative)
@@ -21,7 +22,7 @@ tidy.ScalarIndependenceTest <- function(x) {
 
 tidy.QuadTypeIndependenceTest <- function(x) {
     tibble::tibble(
-        p.value = coin::pvalue(x),
+        p.value = as.numeric(coin::pvalue(x)),
         statistic = coin::statistic(x),
         method = x@method)
 }
@@ -31,7 +32,13 @@ setwd(find_root(is_git_root))
 # Careful, the order should match that of celltype_labels
 density_vars <- c("lymphocytes", "all_t_cells", "CD20+", "CD3+_CD8-",
                   "CD3+_CD8+", "CD3+_FOXP3+_NA", "CD68+", "density_Tissue_CD8._Ki67.")
-clin_vars <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn')
+clin_boxplot_vars <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn')
+clin_vars_cat <- c(clin_boxplot_vars,
+    'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat', 'margin',
+    'dom_growthpat', 'necrosis', 'calcs')
+clin_vars_cont <- c('age', 'diameter', 'Yearsto_iIBC_cases')
+
+clin_vars <- c(clin_vars_cat, clin_vars_cont)
 
 # Labels for cell types in the plot
 celltype_labels <- c("lymphocytes", "All T-cells", "CD20+ B-cells", "Helper T-cells",
@@ -44,7 +51,8 @@ names(celltype_labels) <- density_vars
 
 col_spec <- c(
     structure(map(density_vars, ~ col_double()), names=density_vars),
-    structure(map(clin_vars, ~ col_character()), names=clin_vars))
+    structure(map(clin_vars_cat, ~ col_character()), names=clin_vars_cat),
+    structure(map(clin_vars_cont, ~ col_double()), names=clin_vars_cont))
 
 col_spec[['t_number']] <- col_character()
 col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
@@ -61,22 +69,25 @@ clin_density <- read_tsv(
 clin_density <- clin_density %>%
     pivot_longer(all_of(density_vars),
                  names_to = "cell_type",
-                 values_to = "density") %>%
-    pivot_longer(all_of(clin_vars),
+                 values_to = "density")
+
+clin_density_cat <- clin_density %>%
+    select(-all_of(clin_vars_cont)) %>%
+    pivot_longer(all_of(clin_vars_cat),
                  names_to = "clinical_variable",
                  values_to = "clinical_value") %>%
     filter(!is.na(clinical_value)) %>%
     mutate(cell_type = factor(cell_type, levels=density_vars))
 
-# clin_var_val is a variable for the x axis and needs to be in a specific order.
-clin_density <- clin_density %>% mutate(
-    clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
-        factor(levels = c("COX2_status=High", "COX2_status=Low",
-                          "Her2status=Positive", "Her2status=Negative",
-                          "ER_status=Positive", "ER_status=Negative",
-                          "fibrosis_yn=present", "fibrosis_yn=absent",
-                          "grade=3", "grade=2", "grade=1",
-                          "Cascon=case", "Cascon=control"))) 
+clin_density_cont <- clin_density %>%
+    select(-all_of(clin_vars_cat)) %>%
+    pivot_longer(all_of(clin_vars_cont),
+                 names_to = "clinical_variable",
+                 values_to = "clinical_value") %>%
+    filter(!is.na(clinical_value)) %>%
+    mutate(cell_type = factor(cell_type, levels=density_vars))
+
+
 
 #########################
 # Test for significance #
@@ -93,16 +104,55 @@ non_par_test <- function(density, clinical_value) {
   }
 }
 
-tests <- clin_density %>%
+tests_cat <- clin_density_cat %>%
     group_by(cell_type, clinical_variable) %>%
-    summarise(test = non_par_test(density, clinical_value))
-dens_summary <- clin_density %>%
+    summarise(test = non_par_test(density, clinical_value)) %>%
+    unpack(test) %>%
+    rename(nominal_p = p.value)
+
+tests_cont <- clin_density_cont %>%
+    group_by(cell_type, clinical_variable) %>%
+    summarise(test = tidy(cor.test(density, clinical_value, method = 'spearman'))) %>%
+    unpack(test) %>%
+    rename(nominal_p = p.value)
+
+print(tests_cat)
+print(tests_cont)
+
+tests <- bind_rows(tests_cat, tests_cont) %>%
+    mutate(p = p.adjust(nominal_p, 'bonferroni'),
+           fdr =  p.adjust(nominal_p, 'BH')) %>%
+    arrange(cell_type, clinical_variable)
+write_xlsx(tests, 'results/significance_stroma.xlsx')
+
+############
+# Plotting #
+############
+
+
+# Prepare Data #
+
+# clin_var_val is a variable for the x axis and needs to be in a specific order.
+clin_density_plot <- clin_density_cat %>%
+    filter(clinical_variable %in% clin_boxplot_vars) %>%
+    mutate(clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
+        # FIXME: generate this, but it needs to be in order, and input validation
+        factor(levels = c("COX2_status=High", "COX2_status=Low",
+                          "Her2status=Positive", "Her2status=Negative",
+                          "ER_status=Positive", "ER_status=Negative",
+                          "fibrosis_yn=present", "fibrosis_yn=absent",
+                          "grade=3", "grade=2", "grade=1",
+                          "Cascon=case", "Cascon=control")))
+
+# We need to to know maximum density for significance star placement
+dens_summary <- clin_density_cat %>%
     group_by(cell_type) %>%
     summarize(max_dens=max(density, na.rm=T))
 
 significance_annot <- left_join(
-    transmute(tests, cell_type, clinical_variable, p_value = test$p.value),
-    clin_density %>%
+    transmute(tests_cat, cell_type, clinical_variable, nominal_p = nominal_p) %>%
+        filter(clinical_variable %in% clin_boxplot_vars),
+    clin_density_plot %>%
         select(clinical_variable, clin_var_val) %>%
         distinct() %>%
         group_by(clinical_variable) %>%
@@ -110,16 +160,15 @@ significance_annot <- left_join(
 significance_annot <- significance_annot %>%
     left_join(dens_summary) %>%
     mutate(stars = case_when(
-        p_value < 0.001 ~ '***',
-        p_value < 0.01 ~ '**',
-        p_value < 0.05 ~ '*'))
+        nominal_p < 0.001 ~ '***',
+        nominal_p < 0.01 ~ '**',
+        nominal_p < 0.05 ~ '*'))
 
-#################
+
 # Make the plot #
-#################
 
 pdf('plots/boxplot_density_clinical_variables.pdf', 7, 10)
-ggplot(clin_density, aes(y=density, x=clin_var_val)) +
+ggplot(clin_density_plot, aes(y=density, x=clin_var_val)) +
     geom_boxplot(outlier.alpha=0.0) +
     geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
     geom_text(aes(y=0.95*max_dens, label=stars), data=significance_annot) +
@@ -138,24 +187,16 @@ ggplot(clin_density, aes(y=density, x=clin_var_val)) +
           axis.ticks.y = element_blank())
 dev.off()
 
+##############################
+# Compute summary statistics #
+##############################
 
+summary_stats <- clin_density_cat %>%
+  group_by(cell_type, clinical_variable, clinical_value) %>%
+  summarize(
+    median = median(density, na.rm = T),
+    p25 = quantile(density, probs = .25, na.rm = T),
+    p75 = quantile(density, probs = .75, na.rm = T)
+  )
 
-
-  
-
-
-
-
-
-
-
-
- 
-
-    
-    
-
-
-
-
- 
+write_xlsx(summary_stats, 'results/summary_stats.xlsx')
