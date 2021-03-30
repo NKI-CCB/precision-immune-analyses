@@ -1,16 +1,19 @@
-# load packages
-library(readr)
-library(dplyr)
-library(coin)
-library(forcats)
-library(RColorBrewer)
-library(tidyr)
-library(ggplot2)
+library(conflicted)
+
 library(broom)
-library(tibble)
+library(coin, quietly = T)
+library(dplyr)
+library(forcats)
+library(ggplot2)
 library(purrr)
+library(RColorBrewer)
+library(readr)
 library(rprojroot)
+library(tibble)
+library(tidyr)
 library(writexl)
+
+options(dplyr.summarise.inform = F)
 
 tidy.ScalarIndependenceTest <- function(x) {
     tibble::tibble(
@@ -36,7 +39,7 @@ clin_boxplot_vars <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_statu
 clin_vars_cat <- c(clin_boxplot_vars,
     'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat', 'margin',
     'dom_growthpat', 'necrosis', 'calcs')
-clin_vars_cont <- c('age', 'diameter', 'Yearsto_iIBC_cases')
+clin_vars_cont <- character()
 
 clin_vars <- c(clin_vars_cat, clin_vars_cont)
 
@@ -76,17 +79,21 @@ clin_density_cat <- clin_density %>%
     pivot_longer(all_of(clin_vars_cat),
                  names_to = "clinical_variable",
                  values_to = "clinical_value") %>%
-    filter(!is.na(clinical_value)) %>%
+    dplyr::filter(!is.na(clinical_value)) %>%
     mutate(cell_type = factor(cell_type, levels=density_vars))
 
-clin_density_cont <- clin_density %>%
-    select(-all_of(clin_vars_cat)) %>%
-    pivot_longer(all_of(clin_vars_cont),
-                 names_to = "clinical_variable",
-                 values_to = "clinical_value") %>%
-    filter(!is.na(clinical_value)) %>%
-    mutate(cell_type = factor(cell_type, levels=density_vars))
 
+clin_density_cont <- if (length(clin_vars_cont) > 1) {
+    clin_density %>%
+        select(-all_of(clin_vars_cat)) %>%
+        pivot_longer(all_of(clin_vars_cont),
+                     names_to = "clinical_variable",
+                     values_to = "clinical_value") %>%
+        dplyr::filter(!is.na(clinical_value)) %>%
+        mutate(cell_type = factor(cell_type, levels=density_vars))
+} else {
+    NULL
+}
 
 
 #########################
@@ -110,14 +117,16 @@ tests_cat <- clin_density_cat %>%
     unpack(test) %>%
     rename(nominal_p = p.value)
 
-tests_cont <- clin_density_cont %>%
-    group_by(cell_type, clinical_variable) %>%
-    summarise(test = tidy(cor.test(density, clinical_value, method = 'spearman'))) %>%
-    unpack(test) %>%
-    rename(nominal_p = p.value)
-
-print(tests_cat)
-print(tests_cont)
+tests_cont <- if (length(clin_vars_cont) > 1) {
+    clin_density_cont %>%
+        group_by(cell_type, clinical_variable) %>%
+        summarise(test = tidy(cor.test(density, clinical_value, method = 'spearman',
+                                       exact = F))) %>%
+        unpack(test) %>%
+        rename(nominal_p = p.value)
+} else {
+    NULL
+}
 
 tests <- bind_rows(tests_cat, tests_cont) %>%
     mutate(p = p.adjust(nominal_p, 'bonferroni'),
@@ -134,7 +143,7 @@ write_xlsx(tests, 'results/significance_stroma.xlsx')
 
 # clin_var_val is a variable for the x axis and needs to be in a specific order.
 clin_density_plot <- clin_density_cat %>%
-    filter(clinical_variable %in% clin_boxplot_vars) %>%
+    dplyr::filter(clinical_variable %in% clin_boxplot_vars) %>%
     mutate(clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
         # FIXME: generate this, but it needs to be in order, and input validation
         factor(levels = c("COX2_status=High", "COX2_status=Low",
@@ -151,27 +160,30 @@ dens_summary <- clin_density_cat %>%
 
 significance_annot <- left_join(
     transmute(tests_cat, cell_type, clinical_variable, nominal_p = nominal_p) %>%
-        filter(clinical_variable %in% clin_boxplot_vars),
+        dplyr::filter(clinical_variable %in% clin_boxplot_vars),
     clin_density_plot %>%
         select(clinical_variable, clin_var_val) %>%
         distinct() %>%
         group_by(clinical_variable) %>%
-        summarize(clin_var_val = median(unclass(clin_var_val))))
+        summarize(clin_var_val = median(unclass(clin_var_val))),
+    by = 'clinical_variable')
 significance_annot <- significance_annot %>%
-    left_join(dens_summary) %>%
+    left_join(dens_summary, by = 'cell_type') %>%
     mutate(stars = case_when(
         nominal_p < 0.001 ~ '***',
         nominal_p < 0.01 ~ '**',
         nominal_p < 0.05 ~ '*'))
 
-
 # Make the plot #
 
 pdf('plots/boxplot_density_clinical_variables.pdf', 7, 10)
-ggplot(clin_density_plot, aes(y=density, x=clin_var_val)) +
+clin_density_plot %>%
+    dplyr::filter(!is.na(density)) %>%
+    ggplot(aes(y=density, x=clin_var_val)) +
     geom_boxplot(outlier.alpha=0.0) +
     geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
-    geom_text(aes(y=0.95*max_dens, label=stars), data=significance_annot) +
+    geom_text(aes(y=0.95*max_dens, label=stars),
+              data=dplyr::filter(significance_annot, !is.na(stars))) +
     geom_hline(yintercept = 0) +
     coord_flip() +
     facet_wrap(vars(cell_type), scales = "free_x", ncol=4,
@@ -185,7 +197,7 @@ ggplot(clin_density_plot, aes(y=density, x=clin_var_val)) +
           axis.line.y = element_blank(),
           panel.spacing.x = unit(5, 'pt'),
           axis.ticks.y = element_blank())
-dev.off()
+invisible(dev.off())
 
 ##############################
 # Compute summary statistics #
