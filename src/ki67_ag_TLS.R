@@ -1,0 +1,166 @@
+library(conflicted)
+
+library(broom)
+library(coin, quietly = T)
+library(dplyr)
+library(forcats)
+library(glue)
+library(purrr)
+library(readr)
+library(writexl)
+
+options(dplyr.summarise.inform = F)
+
+tidy.ScalarIndependenceTest <- function(x) {
+    tibble::tibble(
+        p.value = as.numeric(coin::pvalue(x)),
+        statistic = coin::statistic(x),
+        method = x@method,
+        alternative = x@statistic@alternative)
+}
+
+tidy.QuadTypeIndependenceTest <- function(x) {
+    tibble::tibble(
+        p.value = as.numeric(coin::pvalue(x)),
+        statistic = coin::statistic(x),
+        method = x@method)
+}
+
+non_par_test <- function(x, y) {
+  stopifnot(length(x) == length(y))
+  excluded <- is.na(x) | is.na(y)
+  x <- x[!excluded]
+  y <- y[!excluded]
+  if (is.double(x) & is.double(y)) {
+    test <- tidy(coin::spearman_test(y ~ x))
+    test$estimate <- cor(x, y, method = 'spearman')
+  } else if (is.factor(x) & is.double(y)) {
+    x <- fct_drop(x)
+    if (length(levels(x)) == 2) {
+      test <- tidy(coin::wilcox_test(y ~ x))
+    } else {
+      test <- tidy(coin::kruskal_test(y ~ x))
+    }
+  } else if (is.double(x) & is.factor(y)) {
+    y <- fct_drop(y)
+    if (length(levels(y)) == 2) {
+      test <- tidy(coin::wilcox_test(x ~ y))
+    } else {
+      test <- tidy(coin::kruskal_test(x ~ y))
+    }
+  } else if (is.factor(x) & is.factor(y)) {
+    x <- fct_drop(x)
+    y <- fct_drop(y)
+    test <- tidy(coin::chisq_test(x ~ y))
+  } else {
+    str(x)
+    str(y)
+    stop("Combination of variable types not supported.")
+  }
+  test$n_obs <- length(x)
+  rename(test, nominal_p = p.value)
+}
+
+density_vars <- c("lymphocytes", "all_t_cells", "CD20+", "CD3+_CD8-",
+                  "CD3+_CD8+", "CD3+_FOXP3+_NA", "CD68+", "density_Tissue_CD8._Ki67.")
+clin_vars_cat <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn',
+                   'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
+                   'margin', 'dom_growthpat', 'necrosis', 'calcs')
+clin_vars_cont <- c('ki67perc_t', 'ag_vectra_t', 'ag_zone_t', 'TLS_GC_t')
+
+clin_vars <- c(clin_vars_cat, clin_vars_cont)
+
+col_spec <- c(
+    structure(map(density_vars, ~ col_double()), names=density_vars),
+    structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat),
+    structure(map(clin_vars_cont, ~ col_double()), names=clin_vars_cont))
+col_spec[['t_number']] <- col_character()
+col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
+col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
+col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
+
+clin <- read_tsv(
+        'data/clin_DBL_v_str_dens.tsv',
+        col_types = do.call(cols_only, col_spec)) %>%
+    mutate(
+        Cascon=fct_recode(Cascon, control='0', case='1'),
+        fibrosis_yn=fct_recode(fibrosis_yn, absent='0', present='1'),
+        ki67_cat = factor(ki67perc_t >= 14, levels = c(F, T), labels = c('lt14', 'gte14')))
+
+
+# Ki67 #
+
+ki67_tests <- map_dfr(
+    set_names(c('Cascon', density_vars)),
+    ~ non_par_test(clin[[.]], clin[['ki67perc_t']]),
+    .id = 'variable2')
+ki67cat_tests <- map_dfr(
+    set_names(c('Cascon', density_vars)),
+    ~ non_par_test(clin[[.]], clin[['ki67_cat']]),
+    .id = 'variable2')
+
+bind_rows(list(ki67per_t = ki67_tests, ki67_cat = ki67cat_tests), .id = 'variable1') %>%
+  group_by(variable1) %>%
+  mutate(p = p.adjust(nominal_p, 'bonferroni'),
+         fdr =  p.adjust(nominal_p, 'BH')) %>%
+  write_xlsx('results/significance_ki67.xlsx')
+
+# Immune cell aggregates #
+
+ag_vars <- c('Cascon', 'COX2_status', 'Her2status', 'ER_status', 'fibrosis_yn', 'grade')
+
+ag_vectra_tests <- map_dfr(
+    set_names(ag_vars),
+    ~ non_par_test(clin[[.]], clin[['ag_vectra_t']]),
+    .id = 'variable2')
+ag_zone_tests <- map_dfr(
+    set_names(ag_vars),
+    ~ non_par_test(clin[[.]], clin[['ag_zone_t']]),
+    .id = 'variable2')
+TLS_GC_tests <- map_dfr(
+    set_names(ag_vars),
+    ~ non_par_test(clin[[.]], clin[['TLS_GC_t']]),
+    .id = 'variable2')
+
+bind_rows(list(ag_vectra_t = ag_vectra_tests, ag_zone_t = ag_zone_tests, TLS_GC_t = TLS_GC_tests),
+          .id = 'variable1') %>%
+  mutate(p = p.adjust(nominal_p, 'bonferroni'),
+         fdr =  p.adjust(nominal_p, 'BH')) %>%
+  write_xlsx('results/significance_ag_tls.xlsx')
+
+pdf('plots/hist-ag.pdf')
+hist(clin$ag_vectra_t)
+hist(clin$ag_zone_t)
+hist(clin$TLS_GC_t)
+invisible(dev.off())
+
+
+cat_ag <- function (ag) {
+  med_ag <- median(ag, na.rm = T)
+  labels <- c(glue('lte{med_ag}'), glue('gt{med_ag}'))
+  factor(ag > med_ag, levels = c(F, T), labels = labels)
+}
+
+clin$ag_vectra_cat <- cat_ag(clin$ag_vectra_t)
+clin$ag_zone_cat <- cat_ag(clin$ag_zone_t)
+clin$TLS_GC_cat <- cat_ag(clin$TLS_GC_t)
+
+ag_vectra_cat_tests <- map_dfr(
+    set_names(ag_vars),
+    ~ non_par_test(clin[[.]], clin[['ag_vectra_cat']]),
+    .id = 'variable2')
+ag_zone_cat_tests <- map_dfr(
+    set_names(ag_vars),
+    ~ non_par_test(clin[[.]], clin[['ag_zone_cat']]),
+    .id = 'variable2')
+TLS_GC_cat_tests <- map_dfr(
+    set_names(ag_vars),
+    ~ non_par_test(clin[[.]], clin[['TLS_GC_cat']]),
+    .id = 'variable2')
+
+bind_rows(list(ag_vectra_catt = ag_vectra_cat_tests, ag_zone_cat = ag_zone_cat_tests,
+               TLS_GC_cat = TLS_GC_cat_tests),
+          .id = 'variable1') %>%
+  mutate(p = p.adjust(nominal_p, 'bonferroni'),
+         fdr =  p.adjust(nominal_p, 'BH')) %>%
+  write_xlsx('results/significance_ag_tls_cat.xlsx')

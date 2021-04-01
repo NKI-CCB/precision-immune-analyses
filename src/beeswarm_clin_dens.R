@@ -30,8 +30,6 @@ tidy.QuadTypeIndependenceTest <- function(x) {
         method = x@method)
 }
 
-setwd(find_root(is_git_root))
-
 # Careful, the order should match that of celltype_labels
 density_vars <- c("lymphocytes", "all_t_cells", "CD20+", "CD3+_CD8-",
                   "CD3+_CD8+", "CD3+_FOXP3+_NA", "CD68+", "density_Tissue_CD8._Ki67.")
