@@ -39,8 +39,6 @@ clin_vars_cat <- c(clin_boxplot_vars,
     'dom_growthpat', 'necrosis', 'calcs')
 clin_vars_cont <- character()
 
-clin_vars <- c(clin_vars_cat, clin_vars_cont)
-
 # Labels for cell types in the plot
 celltype_labels <- c("lymphocytes", "All T-cells", "CD20+ B-cells", "Helper T-cells",
                      "CD3+CD8+ T-cells", "CD3+FOXP3+ T-cells", "CD68+ cells", "CD8+Ki67+ T-cells")
@@ -55,6 +53,8 @@ col_spec <- c(
     structure(map(clin_vars_cat, ~ col_character()), names=clin_vars_cat),
     structure(map(clin_vars_cont, ~ col_double()), names=clin_vars_cont))
 
+
+col_spec[['ki67perc_t']] = col_double()
 col_spec[['t_number']] <- col_character()
 col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
 col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
@@ -65,6 +65,17 @@ clin_density <- read_tsv(
     mutate(
         Cascon=fct_recode(Cascon, control='0', case='1'),
         fibrosis_yn=fct_recode(fibrosis_yn, absent='0', present='1'))
+
+print(clin_density)
+
+# Calculate categorical KI67 from continuous
+clin_density <- clin_density %>% mutate(
+        ki67_cat = factor(ki67perc_t >= 14,
+                          levels = c(F, T),
+                          labels = c('<14', '>=14'))) %>%
+    select(-ki67perc_t)
+clin_vars_cat <- c(clin_vars_cat, 'ki67_cat')
+clin_boxplot_vars <- c(clin_boxplot_vars, 'ki67_cat')
 
 # Move the density and clinical variables into a single column.
 clin_density <- clin_density %>%
@@ -147,6 +158,7 @@ clin_density_plot <- clin_density_cat %>%
         factor(levels = c("COX2_status=High", "COX2_status=Low",
                           "Her2status=Positive", "Her2status=Negative",
                           "ER_status=Positive", "ER_status=Negative",
+                          "ki67_cat=<14", "ki67_cat=>=14",
                           "fibrosis_yn=present", "fibrosis_yn=absent",
                           "grade=3", "grade=2", "grade=1",
                           "Cascon=case", "Cascon=control")))
