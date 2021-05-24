@@ -30,46 +30,85 @@ tidy.QuadTypeIndependenceTest <- function(x) {
         method = x@method)
 }
 
-# Careful, the order should match that of celltype_labels
-density_vars <- c("lymphocytes", "all_t_cells", "CD20+", "CD3+_CD8-",
-                  "CD3+_CD8+", "CD3+_FOXP3+_NA", "CD68+", "density_Tissue_CD8._Ki67.")
-clin_boxplot_vars <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn')
-clin_vars_cat <- c(clin_boxplot_vars,
-    'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat', 'margin',
-    'dom_growthpat', 'necrosis', 'calcs')
-clin_vars_cont <- character()
+cell_type_labels_vectra <- c(
+    lymphocytes = "Lymphocytes",
+    all_t_cells = "All T-cells",
+    `CD20+` = "CD20+ B-cells",
+    `CD3+_CD8-` = "Helper T-cells",
+    `CD3+_CD8+` = "CD3+CD8+ T-cells",
+    `CD3+_FOXP3+` = "CD3+FOXP3+ T-cells",
+    `CD68+` = "CD68+ cells")
+cell_type_labels_ki67 <- c(
+    `CD8+_Ki67+` = "CD8+Ki67+ T-cells")
+cell_type_labels <- c(cell_type_labels_vectra, cell_type_labels_ki67)
 
-# Labels for cell types in the plot
-celltype_labels <- c("lymphocytes", "All T-cells", "CD20+ B-cells", "Helper T-cells",
-                     "CD3+CD8+ T-cells", "CD3+FOXP3+ T-cells", "CD68+ cells", "CD8+Ki67+ T-cells")
-names(celltype_labels) <- density_vars
+parse_args <- function(args) {
+    arg_names <- c('cell_density', 'cell_density_ki67', 'area', 'clinical', 'plot', 'stats', 'tests')
+    stopifnot(length(args) == length(arg_names))
+    args <- as.list(args)
+    names(args) <- arg_names
+    args
+}
+
+args <- parse_args(commandArgs(T))
 
 #############################
 # Read and prepare the data #
 #############################
 
-col_spec <- c(
-    structure(map(density_vars, ~ col_double()), names=density_vars),
-    structure(map(clin_vars_cat, ~ col_character()), names=clin_vars_cat),
-    structure(map(clin_vars_cont, ~ col_double()), names=clin_vars_cont))
+
+# Read and prepare densities from Vectra #
+
+density_vectra <- args$cell_density %>%
+    read_tsv(col_types = cols(
+        .default = col_double(),
+        batch = col_factor(),
+        t_number = col_character())) %>%
+    select(-batch)  %>%
+    mutate(
+        all_t_cells = `CD3+_CD8+` + `CD3+_CD8+` + `CD3+_FOXP3+`,
+        lymphocytes = all_t_cells + `CD20+`)  %>%
+    pivot_longer(-t_number, names_to = "cell_type", values_to = "density") %>%
+    dplyr::filter(cell_type != 'panCK+', cell_type != 'Other')
+
+# Read and prepare densities from Ki67 #
+
+density_ki67 <- args$cell_density_ki67 %>%
+    read_tsv(col_types = cols(
+        .default = col_double(),
+        t_number = col_character())) %>%
+    pivot_longer(
+        cols = -t_number,
+        names_to = c('measure', 'area', 'cell_type'),
+        names_pattern = "([a-z]+)_([a-zA-Z]+)_([a-zA-Z0-9_+]+)") %>%
+    dplyr::filter(measure == 'density', area == args$area, cell_type == 'CD8+_Ki67+') %>%
+    select(-measure, -area) %>%
+    rename(density = value)
+
+density <- bind_rows(density_vectra, density_ki67) %>%
+    mutate(cell_type = factor(cell_type, levels=names(cell_type_labels)))
+
+stopifnot(!is.na(density$cell_type))
 
 
-col_spec[['ki67perc_t']] = col_double()
-col_spec[['t_number']] <- col_character()
-col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
-col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
-col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
-clin_density <- read_tsv(
-        'data/clin_DBL_v_str_dens.tsv',
-        col_types = do.call(cols_only, col_spec)) %>%
+# Read and prepare clinical variables #
+
+clin_boxplot_vars <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn') 
+clin_vars_cat <- c(clin_boxplot_vars,
+                   'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
+                   'margin', 'dom_growthpat', 'necrosis', 'calcs')                                                          
+clin_col_spec <- c(structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat))
+clin_col_spec[['ki67perc_t']] = col_double()
+clin_col_spec[['t_number']] <- col_character()
+clin_col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
+clin_col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
+clin_col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
+
+clinical <- args$clinical %>%
+    read_tsv(col_types = do.call(cols_only, clin_col_spec)) %>%
     mutate(
         Cascon=fct_recode(Cascon, control='0', case='1'),
-        fibrosis_yn=fct_recode(fibrosis_yn, absent='0', present='1'))
-
-print(clin_density)
-
-# Calculate categorical KI67 from continuous
-clin_density <- clin_density %>% mutate(
+        fibrosis_yn=fct_recode(fibrosis_yn, absent='0', present='1'),
         ki67_cat = factor(ki67perc_t >= 14,
                           levels = c(F, T),
                           labels = c('<14', '>=14'))) %>%
@@ -77,33 +116,14 @@ clin_density <- clin_density %>% mutate(
 clin_vars_cat <- c(clin_vars_cat, 'ki67_cat')
 clin_boxplot_vars <- c(clin_boxplot_vars, 'ki67_cat')
 
-# Move the density and clinical variables into a single column.
-clin_density <- clin_density %>%
-    pivot_longer(all_of(density_vars),
-                 names_to = "cell_type",
-                 values_to = "density")
-
-clin_density_cat <- clin_density %>%
-    select(-all_of(clin_vars_cont)) %>%
+clin_cat <- clinical %>%
     pivot_longer(all_of(clin_vars_cat),
                  names_to = "clinical_variable",
-                 values_to = "clinical_value") %>%
-    dplyr::filter(!is.na(clinical_value)) %>%
-    mutate(cell_type = factor(cell_type, levels=density_vars))
+                 values_to = "clinical_value",
+                 values_drop_na = TRUE)
 
 
-clin_density_cont <- if (length(clin_vars_cont) > 1) {
-    clin_density %>%
-        select(-all_of(clin_vars_cat)) %>%
-        pivot_longer(all_of(clin_vars_cont),
-                     names_to = "clinical_variable",
-                     values_to = "clinical_value") %>%
-        dplyr::filter(!is.na(clinical_value)) %>%
-        mutate(cell_type = factor(cell_type, levels=density_vars))
-} else {
-    NULL
-}
-
+clin_dens <- left_join(clin_cat, density, by = 't_number')
 
 #########################
 # Test for significance #
@@ -120,28 +140,31 @@ non_par_test <- function(density, clinical_value) {
   }
 }
 
-tests_cat <- clin_density_cat %>%
+tests_cat <- clin_dens %>%
     group_by(cell_type, clinical_variable) %>%
     summarise(test = non_par_test(density, clinical_value)) %>%
     unpack(test) %>%
     rename(nominal_p = p.value)
 
-tests_cont <- if (length(clin_vars_cont) > 1) {
-    clin_density_cont %>%
-        group_by(cell_type, clinical_variable) %>%
-        summarise(test = tidy(cor.test(density, clinical_value, method = 'spearman',
-                                       exact = F))) %>%
-        unpack(test) %>%
-        rename(nominal_p = p.value)
-} else {
-    NULL
-}
-
-tests <- bind_rows(tests_cat, tests_cont) %>%
+tests <- tests_cat %>%
     mutate(p = p.adjust(nominal_p, 'bonferroni'),
            fdr =  p.adjust(nominal_p, 'BH')) %>%
     arrange(cell_type, clinical_variable)
-write_xlsx(tests, 'results/significance_stroma.xlsx')
+write_xlsx(tests, args$tests)
+
+##############################
+# Compute summary statistics #
+##############################
+
+summary_stats <- clin_dens %>%
+  group_by(cell_type, clinical_variable, clinical_value) %>%
+  summarize(
+    median = median(density, na.rm = T),
+    p25 = quantile(density, probs = .25, na.rm = T),
+    p75 = quantile(density, probs = .75, na.rm = T)
+  )
+
+write_xlsx(summary_stats, args$stats)
 
 ############
 # Plotting #
@@ -151,20 +174,19 @@ write_xlsx(tests, 'results/significance_stroma.xlsx')
 # Prepare Data #
 
 # clin_var_val is a variable for the x axis and needs to be in a specific order.
-clin_density_plot <- clin_density_cat %>%
+clin_density_plot <- clin_dens %>%
     dplyr::filter(clinical_variable %in% clin_boxplot_vars) %>%
     mutate(clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
-        # FIXME: generate this, but it needs to be in order, and input validation
         factor(levels = c("COX2_status=High", "COX2_status=Low",
+                          "ki67_cat=<14", "ki67_cat=>=14",
                           "Her2status=Positive", "Her2status=Negative",
                           "ER_status=Positive", "ER_status=Negative",
-                          "ki67_cat=<14", "ki67_cat=>=14",
                           "fibrosis_yn=present", "fibrosis_yn=absent",
                           "grade=3", "grade=2", "grade=1",
                           "Cascon=case", "Cascon=control")))
 
 # We need to to know maximum density for significance star placement
-dens_summary <- clin_density_cat %>%
+dens_summary <- clin_dens %>%
     group_by(cell_type) %>%
     summarize(max_dens=max(density, na.rm=T))
 
@@ -186,7 +208,7 @@ significance_annot <- significance_annot %>%
 
 # Make the plot #
 
-pdf('plots/boxplot_density_clinical_variables.pdf', 7, 10)
+pdf(args$plot, 7, 10)
 clin_density_plot %>%
     dplyr::filter(!is.na(density)) %>%
     ggplot(aes(y=density, x=clin_var_val)) +
@@ -197,7 +219,7 @@ clin_density_plot %>%
     geom_hline(yintercept = 0) +
     coord_flip() +
     facet_wrap(vars(cell_type), scales = "free_x", ncol=4,
-               labeller = labeller(cell_type = celltype_labels)) +
+               labeller = labeller(cell_type = cell_type_labels)) +
     scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA)) +
     scale_x_discrete("") +
     scale_colour_brewer(palette='Dark2') +
@@ -208,17 +230,3 @@ clin_density_plot %>%
           panel.spacing.x = unit(5, 'pt'),
           axis.ticks.y = element_blank())
 invisible(dev.off())
-
-##############################
-# Compute summary statistics #
-##############################
-
-summary_stats <- clin_density_cat %>%
-  group_by(cell_type, clinical_variable, clinical_value) %>%
-  summarize(
-    median = median(density, na.rm = T),
-    p25 = quantile(density, probs = .25, na.rm = T),
-    p75 = quantile(density, probs = .75, na.rm = T)
-  )
-
-write_xlsx(summary_stats, 'results/summary_stats.xlsx')
