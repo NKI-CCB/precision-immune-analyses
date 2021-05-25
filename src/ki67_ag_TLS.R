@@ -4,9 +4,11 @@ library(broom)
 library(coin, quietly = T)
 library(dplyr)
 library(forcats)
+library(ggplot2)
 library(glue)
 library(purrr)
 library(readr)
+library(tidyr)
 library(writexl)
 
 options(dplyr.summarise.inform = F)
@@ -66,7 +68,7 @@ density_vars <- c("lymphocytes", "all_t_cells", "CD20+", "CD3+_CD8-",
 clin_vars_cat <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn',
                    'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
                    'margin', 'dom_growthpat', 'necrosis', 'calcs')
-clin_vars_cont <- c('ki67perc_t', 'ag_vectra_t', 'ag_zone_t', 'TLS_GC_t')
+clin_vars_cont <- c('ki67perc_t', 'ag_zone_t', 'TLS_GC_t')
 
 clin_vars <- c(clin_vars_cat, clin_vars_cont)
 
@@ -87,6 +89,26 @@ clin <- read_tsv(
         fibrosis_yn=fct_recode(fibrosis_yn, absent='0', present='1'),
         ki67_cat = factor(ki67perc_t >= 14, levels = c(F, T), labels = c('lt14', 'gte14')))
 
+# Calculate per area
+area_ki67 <- read_tsv('data/ki67_counts.tsv', col_types = cols_only(
+        `Classifier Label` = col_character(),
+        t_number = col_character(),
+        area = col_double())) %>%
+    dplyr::filter(`Classifier Label` == 'Tissue') %>%
+    rename(area_ki67 = area) %>%
+    distinct()
+
+area_vectra <- read_tsv('data/area_Stroma.tsv', col_types = cols_only(
+        t_number = col_character(),
+        area = col_double())) %>%
+    rename(area_vectra = area)
+
+clin <- clin %>%
+    left_join(area_ki67, by='t_number') %>%
+    left_join(area_vectra, by='t_number') %>%
+    mutate(
+        ag_zone_t = ag_zone_t / area_vectra,
+        TLS_GC_t = TLS_GC_t / area_ki67)
 
 # Ki67 #
 
@@ -107,12 +129,8 @@ bind_rows(list(ki67per_t = ki67_tests, ki67_cat = ki67cat_tests), .id = 'variabl
 
 # Immune cell aggregates #
 
-ag_vars <- c('Cascon', 'COX2_status', 'Her2status', 'ER_status', 'fibrosis_yn', 'grade')
+ag_vars <- c('Cascon', 'COX2_status', 'Her2status', 'ER_status', 'fibrosis_yn', 'grade', 'ki67_cat')
 
-ag_vectra_tests <- map_dfr(
-    set_names(ag_vars),
-    ~ non_par_test(clin[[.]], clin[['ag_vectra_t']]),
-    .id = 'variable2')
 ag_zone_tests <- map_dfr(
     set_names(ag_vars),
     ~ non_par_test(clin[[.]], clin[['ag_zone_t']]),
@@ -122,18 +140,16 @@ TLS_GC_tests <- map_dfr(
     ~ non_par_test(clin[[.]], clin[['TLS_GC_t']]),
     .id = 'variable2')
 
-bind_rows(list(ag_vectra_t = ag_vectra_tests, ag_zone_t = ag_zone_tests, TLS_GC_t = TLS_GC_tests),
+bind_rows(list(ag_zone_t = ag_zone_tests, TLS_GC_t = TLS_GC_tests),
           .id = 'variable1') %>%
   mutate(p = p.adjust(nominal_p, 'bonferroni'),
          fdr =  p.adjust(nominal_p, 'BH')) %>%
   write_xlsx('results/significance_ag_tls.xlsx')
 
 pdf('plots/hist-ag.pdf')
-hist(clin$ag_vectra_t)
 hist(clin$ag_zone_t)
 hist(clin$TLS_GC_t)
 invisible(dev.off())
-
 
 cat_ag <- function (ag) {
   med_ag <- median(ag, na.rm = T)
@@ -141,14 +157,9 @@ cat_ag <- function (ag) {
   factor(ag > med_ag, levels = c(F, T), labels = labels)
 }
 
-clin$ag_vectra_cat <- cat_ag(clin$ag_vectra_t)
 clin$ag_zone_cat <- cat_ag(clin$ag_zone_t)
 clin$TLS_GC_cat <- cat_ag(clin$TLS_GC_t)
 
-ag_vectra_cat_tests <- map_dfr(
-    set_names(ag_vars),
-    ~ non_par_test(clin[[.]], clin[['ag_vectra_cat']]),
-    .id = 'variable2')
 ag_zone_cat_tests <- map_dfr(
     set_names(ag_vars),
     ~ non_par_test(clin[[.]], clin[['ag_zone_cat']]),
@@ -158,9 +169,59 @@ TLS_GC_cat_tests <- map_dfr(
     ~ non_par_test(clin[[.]], clin[['TLS_GC_cat']]),
     .id = 'variable2')
 
-bind_rows(list(ag_vectra_catt = ag_vectra_cat_tests, ag_zone_cat = ag_zone_cat_tests,
+bind_rows(list(ag_zone_cat = ag_zone_cat_tests,
                TLS_GC_cat = TLS_GC_cat_tests),
           .id = 'variable1') %>%
   mutate(p = p.adjust(nominal_p, 'bonferroni'),
          fdr =  p.adjust(nominal_p, 'BH')) %>%
   write_xlsx('results/significance_ag_tls_cat.xlsx')
+
+pdf('plots/boxplot_tls.pdf')
+
+clin_plot <- clin %>%
+    select(TLS_GC_t, ag_zone_t, all_of(ag_vars)) %>%
+    pivot_longer(all_of(ag_vars),
+                 names_to = "clinical_variable",
+                 values_to = "clinical_value",
+                 values_drop_na = TRUE) %>%
+    mutate(clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
+        factor(levels = c("COX2_status=High", "COX2_status=Low",
+                          "ki67_cat=lt14", "ki67_cat=gte14",
+                          "Her2status=Positive", "Her2status=Negative",
+                          "ER_status=Positive", "ER_status=Negative",
+                          "fibrosis_yn=present", "fibrosis_yn=absent",
+                          "grade=3", "grade=2", "grade=1",
+                          "Cascon=case", "Cascon=control")))
+
+clin_plot %>%
+    ggplot(aes(y=TLS_GC_t, x=clin_var_val)) +
+    geom_boxplot(outlier.alpha=0.0) +
+    geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
+    geom_hline(yintercept = 0) +
+    coord_flip() +
+    scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA)) +
+    scale_x_discrete("") +
+    scale_colour_brewer(palette='Dark2') +
+    guides(colour = 'none') +
+    theme_classic() +
+    theme(strip.background = element_blank(),
+          axis.line.y = element_blank(),
+          panel.spacing.x = unit(5, 'pt'),
+          axis.ticks.y = element_blank())
+
+clin_plot %>%
+    ggplot(aes(y=ag_zone_t, x=clin_var_val)) +
+    geom_boxplot(outlier.alpha=0.0) +
+    geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
+    geom_hline(yintercept = 0) +
+    coord_flip() +
+    scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA)) +
+    scale_x_discrete("") +
+    scale_colour_brewer(palette='Dark2') +
+    guides(colour = 'none') +
+    theme_classic() +
+    theme(strip.background = element_blank(),
+          axis.line.y = element_blank(),
+          panel.spacing.x = unit(5, 'pt'),
+          axis.ticks.y = element_blank())
+dev.off()

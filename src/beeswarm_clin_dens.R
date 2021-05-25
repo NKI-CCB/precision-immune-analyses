@@ -59,6 +59,11 @@ args <- parse_args(commandArgs(T))
 
 # Read and prepare densities from Vectra #
 
+na_as_zero <- function (x) {
+    x[is.na(x)] <- 0
+    x
+}
+
 density_vectra <- args$cell_density %>%
     read_tsv(col_types = cols(
         .default = col_double(),
@@ -66,8 +71,8 @@ density_vectra <- args$cell_density %>%
         t_number = col_character())) %>%
     select(-batch)  %>%
     mutate(
-        all_t_cells = `CD3+_CD8+` + `CD3+_CD8+` + `CD3+_FOXP3+`,
-        lymphocytes = all_t_cells + `CD20+`)  %>%
+        all_t_cells = na_as_zero(`CD3+_CD8+`) + na_as_zero(`CD3+_CD8-`) + na_as_zero(`CD3+_FOXP3+`),
+        lymphocytes = all_t_cells + na_as_zero(`CD20+`))  %>%
     pivot_longer(-t_number, names_to = "cell_type", values_to = "density") %>%
     dplyr::filter(cell_type != 'panCK+', cell_type != 'Other')
 
@@ -142,7 +147,8 @@ non_par_test <- function(density, clinical_value) {
 
 tests_cat <- clin_dens %>%
     group_by(cell_type, clinical_variable) %>%
-    summarise(test = non_par_test(density, clinical_value)) %>%
+    summarise(test = non_par_test(density, clinical_value),
+              n_obs = n()) %>%
     unpack(test) %>%
     rename(nominal_p = p.value)
 
@@ -161,7 +167,8 @@ summary_stats <- clin_dens %>%
   summarize(
     median = median(density, na.rm = T),
     p25 = quantile(density, probs = .25, na.rm = T),
-    p75 = quantile(density, probs = .75, na.rm = T)
+    p75 = quantile(density, probs = .75, na.rm = T),
+    n_obs = n()
   )
 
 write_xlsx(summary_stats, args$stats)

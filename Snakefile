@@ -15,7 +15,7 @@ rule boxplot_dens_clin_stroma:
         script='src/beeswarm_clin_dens.R',
     shell:
         'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
-        ' {output.plot} {output.tests} {output.stats}'
+        ' {output.plot} {output.stats} {output.tests}'
 
 rule boxplot_dens_clin_dcis:
     output:
@@ -29,4 +29,4 @@ rule boxplot_dens_clin_dcis:
         script='src/beeswarm_clin_dens.R',
     shell:
         'Rscript {input.script} {input.density} {input.density_ki67} DCIS {input.clinical}'
-        ' {output.plot} {output.tests} {output.stats}'
+        ' {output.plot} {output.stats} {output.tests}'
