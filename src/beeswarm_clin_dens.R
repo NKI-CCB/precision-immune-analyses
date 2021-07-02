@@ -43,7 +43,8 @@ cell_type_labels_ki67 <- c(
 cell_type_labels <- c(cell_type_labels_vectra, cell_type_labels_ki67)
 
 parse_args <- function(args) {
-    arg_names <- c('cell_density', 'cell_density_ki67', 'area', 'clinical', 'plot', 'stats', 'tests')
+    arg_names <- c('cell_density', 'cell_density_ki67', 'area', 'clinical', 'subset', 'plot',
+                   'stats', 'tests')
     stopifnot(length(args) == length(arg_names))
     args <- as.list(args)
     names(args) <- arg_names
@@ -51,6 +52,8 @@ parse_args <- function(args) {
 }
 
 args <- parse_args(commandArgs(T))
+
+ki67_cd8_var <- paste0('density_', args$area, '_CD8._Ki67.')
 
 #############################
 # Read and prepare the data #
@@ -74,27 +77,7 @@ density_vectra <- args$cell_density %>%
         all_t_cells = na_as_zero(`CD3+_CD8+`) + na_as_zero(`CD3+_CD8-`) + na_as_zero(`CD3+_FOXP3+`),
         lymphocytes = all_t_cells + na_as_zero(`CD20+`))  %>%
     pivot_longer(-t_number, names_to = "cell_type", values_to = "density") %>%
-    dplyr::filter(cell_type != 'panCK+', cell_type != 'Other')
-
-# Read and prepare densities from Ki67 #
-
-density_ki67 <- args$cell_density_ki67 %>%
-    read_tsv(col_types = cols(
-        .default = col_double(),
-        t_number = col_character())) %>%
-    pivot_longer(
-        cols = -t_number,
-        names_to = c('measure', 'area', 'cell_type'),
-        names_pattern = "([a-z]+)_([a-zA-Z]+)_([a-zA-Z0-9_+]+)") %>%
-    dplyr::filter(measure == 'density', area == args$area, cell_type == 'CD8+_Ki67+') %>%
-    select(-measure, -area) %>%
-    rename(density = value)
-
-density <- bind_rows(density_vectra, density_ki67) %>%
-    mutate(cell_type = factor(cell_type, levels=names(cell_type_labels)))
-
-stopifnot(!is.na(density$cell_type))
-
+    dplyr::filter(cell_type != 'panCK+', cell_type != 'Other', !is.na(density))
 
 # Read and prepare clinical variables #
 
@@ -108,6 +91,8 @@ clin_col_spec[['t_number']] <- col_character()
 clin_col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
 clin_col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
 clin_col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
+clin_col_spec[[ki67_cd8_var]] <- col_double()
+clin_col_spec[['Subtype_10']] <- col_integer()
 
 clinical <- args$clinical %>%
     read_tsv(col_types = do.call(cols_only, clin_col_spec)) %>%
@@ -121,14 +106,40 @@ clinical <- args$clinical %>%
 clin_vars_cat <- c(clin_vars_cat, 'ki67_cat')
 clin_boxplot_vars <- c(clin_boxplot_vars, 'ki67_cat')
 
+if (args$subset == 'all') {
+} else if (args$subset == 'erpos_her2neg') {
+  clinical <- dplyr::filter(clinical, Subtype_10 == 1)
+} else if (args$subset == 'fibrosis') {
+  clinical <- dplyr::filter(clinical, fibrosis_yn == 'absent')
+} else {
+  stop('No such subset')
+}
+
 clin_cat <- clinical %>%
+    select(t_number, Cascon, all_of(clin_vars_cat)) %>%
     pivot_longer(all_of(clin_vars_cat),
                  names_to = "clinical_variable",
                  values_to = "clinical_value",
                  values_drop_na = TRUE)
 
+## One cell type's data lives in the clinical data frame
+
+density_ki67 <- clinical %>%
+    select(t_number, all_of(ki67_cd8_var)) %>%
+    rename(density = !!ki67_cd8_var) %>%
+    mutate(cell_type = 'CD8+_Ki67+') %>%
+    dplyr::filter(!is.na(density))
+
+density <- bind_rows(density_vectra, density_ki67) %>%
+    mutate(cell_type = factor(cell_type, levels = names(cell_type_labels))) %>%
+    dplyr::filter(t_number %in% clinical$t_number)
+
+stopifnot(!is.na(density$cell_type))
+
+##
 
 clin_dens <- left_join(clin_cat, density, by = 't_number')
+
 
 #########################
 # Test for significance #
@@ -138,7 +149,12 @@ clin_dens <- left_join(clin_cat, density, by = 't_number')
 # number of levels in the variable.
 non_par_test <- function(density, clinical_value) {
   clinical_value <- fct_drop(clinical_value)
-  if (length(levels(clinical_value)) == 2) {
+  if (length(levels(clinical_value)) == 1) {
+    tibble(
+      p.value = NA,
+      statistic = NA,
+      method = 'only one level')
+  } else if (length(levels(clinical_value)) == 2) {
     tidy(coin::wilcox_test(density ~ clinical_value))
   } else {
     tidy(coin::kruskal_test(density ~ clinical_value))
@@ -148,21 +164,25 @@ non_par_test <- function(density, clinical_value) {
 tests_cat <- clin_dens %>%
     group_by(cell_type, clinical_variable) %>%
     summarise(test = non_par_test(density, clinical_value),
-              n_obs = n()) %>%
+              n_obs = n()) %>% 
     unpack(test) %>%
     rename(nominal_p = p.value)
 
+fdr_df <- tests_cat %>%
+  ungroup() %>%
+  dplyr::filter(clinical_variable == 'Cascon') %>%
+  mutate(fdr =  p.adjust(nominal_p, 'BH')) %>%
+  select(clinical_variable, cell_type, fdr)
 tests <- tests_cat %>%
-    mutate(p = p.adjust(nominal_p, 'bonferroni'),
-           fdr =  p.adjust(nominal_p, 'BH')) %>%
-    arrange(cell_type, clinical_variable)
+  full_join(fdr_df, by=c('clinical_variable', 'cell_type')) %>%
+  arrange(cell_type, clinical_variable)
 write_xlsx(tests, args$tests)
 
 ##############################
 # Compute summary statistics #
 ##############################
 
-summary_stats <- clin_dens %>%
+summary_stats_by_clin_var <- clin_dens %>%
   group_by(cell_type, clinical_variable, clinical_value) %>%
   summarize(
     median = median(density, na.rm = T),
@@ -170,6 +190,19 @@ summary_stats <- clin_dens %>%
     p75 = quantile(density, probs = .75, na.rm = T),
     n_obs = n()
   )
+
+summary_stats_overall <- density %>%
+  group_by(cell_type) %>%
+  summarize(
+    median = median(density, na.rm = T),
+    p25 = quantile(density, probs = .25, na.rm = T),
+    p75 = quantile(density, probs = .75, na.rm = T),
+    n_obs = n()
+  )
+
+summary_stats <- bind_rows(
+  summary_stats_overall,
+  summary_stats_by_clin_var)
 
 write_xlsx(summary_stats, args$stats)
 
@@ -185,7 +218,7 @@ clin_density_plot <- clin_dens %>%
     dplyr::filter(clinical_variable %in% clin_boxplot_vars) %>%
     mutate(clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
         factor(levels = c("COX2_status=High", "COX2_status=Low",
-                          "ki67_cat=<14", "ki67_cat=>=14",
+                          "ki67_cat=>=14", "ki67_cat=<14",
                           "Her2status=Positive", "Her2status=Negative",
                           "ER_status=Positive", "ER_status=Negative",
                           "fibrosis_yn=present", "fibrosis_yn=absent",

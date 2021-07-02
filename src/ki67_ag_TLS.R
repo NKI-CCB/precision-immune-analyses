@@ -122,9 +122,6 @@ ki67cat_tests <- map_dfr(
     .id = 'variable2')
 
 bind_rows(list(ki67per_t = ki67_tests, ki67_cat = ki67cat_tests), .id = 'variable1') %>%
-  group_by(variable1) %>%
-  mutate(p = p.adjust(nominal_p, 'bonferroni'),
-         fdr =  p.adjust(nominal_p, 'BH')) %>%
   write_xlsx('results/significance_ki67.xlsx')
 
 # Immune cell aggregates #
@@ -142,8 +139,6 @@ TLS_GC_tests <- map_dfr(
 
 bind_rows(list(ag_zone_t = ag_zone_tests, TLS_GC_t = TLS_GC_tests),
           .id = 'variable1') %>%
-  mutate(p = p.adjust(nominal_p, 'bonferroni'),
-         fdr =  p.adjust(nominal_p, 'BH')) %>%
   write_xlsx('results/significance_ag_tls.xlsx')
 
 pdf('plots/hist-ag.pdf')
@@ -172,17 +167,21 @@ TLS_GC_cat_tests <- map_dfr(
 bind_rows(list(ag_zone_cat = ag_zone_cat_tests,
                TLS_GC_cat = TLS_GC_cat_tests),
           .id = 'variable1') %>%
-  mutate(p = p.adjust(nominal_p, 'bonferroni'),
-         fdr =  p.adjust(nominal_p, 'BH')) %>%
   write_xlsx('results/significance_ag_tls_cat.xlsx')
 
 pdf('plots/boxplot_tls.pdf')
 
+dens_vars = c('TLS_GC_t', 'ag_zone_t')
+
 clin_plot <- clin %>%
-    select(TLS_GC_t, ag_zone_t, all_of(ag_vars)) %>%
+    select(all_of(dens_vars), all_of(ag_vars)) %>%
     pivot_longer(all_of(ag_vars),
                  names_to = "clinical_variable",
                  values_to = "clinical_value",
+                 values_drop_na = TRUE) %>%
+    pivot_longer(all_of(dens_vars),
+                 names_to = "density_variable",
+                 values_to = "density",
                  values_drop_na = TRUE) %>%
     mutate(clin_var_val = paste0(clinical_variable, '=', clinical_value) %>%
         factor(levels = c("COX2_status=High", "COX2_status=Low",
@@ -193,15 +192,30 @@ clin_plot <- clin %>%
                           "grade=3", "grade=2", "grade=1",
                           "Cascon=case", "Cascon=control")))
 
+
+get_breaks <- function(lim) {
+  print(lim)
+  width = 10**floor(log10(lim[2]))
+  print(width)
+  last_break = width * floor(lim[2] / width)
+  print(last_break)
+  breaks_large = seq(width, last_break, width)
+  breaks_small = seq(0, width - (width/10), width/2)
+  c(breaks_small, breaks_large)
+}
+
 clin_plot %>%
-    ggplot(aes(y=TLS_GC_t, x=clin_var_val)) +
+    ggplot(aes(y=density, x=clin_var_val)) +
     geom_boxplot(outlier.alpha=0.0) +
     geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
     geom_hline(yintercept = 0) +
     coord_flip() +
-    scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA)) +
+    scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA),
+                       trans = scales::sqrt_trans(),
+                       breaks = get_breaks) +
     scale_x_discrete("") +
     scale_colour_brewer(palette='Dark2') +
+    facet_wrap(vars(density_variable), scales = 'free_x', ncol=2) +
     guides(colour = 'none') +
     theme_classic() +
     theme(strip.background = element_blank(),
@@ -209,19 +223,19 @@ clin_plot %>%
           panel.spacing.x = unit(5, 'pt'),
           axis.ticks.y = element_blank())
 
-clin_plot %>%
-    ggplot(aes(y=ag_zone_t, x=clin_var_val)) +
-    geom_boxplot(outlier.alpha=0.0) +
-    geom_jitter(aes(colour = clinical_variable), width = 0.2, height = 0, shape=1, size=0.7) +
-    geom_hline(yintercept = 0) +
-    coord_flip() +
-    scale_y_continuous(expand = expansion(c(0, 0.05), c(0, 0)), limits = c(0, NA)) +
-    scale_x_discrete("") +
-    scale_colour_brewer(palette='Dark2') +
-    guides(colour = 'none') +
-    theme_classic() +
-    theme(strip.background = element_blank(),
-          axis.line.y = element_blank(),
-          panel.spacing.x = unit(5, 'pt'),
-          axis.ticks.y = element_blank())
 dev.off()
+
+##############################
+# Compute summary statistics #
+##############################
+
+summary_stats <- clin_plot %>%
+  group_by(density_variable, clinical_variable, clinical_value) %>%
+  summarize(
+    median = median(density, na.rm = T),
+    p25 = quantile(density, probs = .25, na.rm = T),
+    p75 = quantile(density, probs = .75, na.rm = T),
+    n_obs = n()
+  )
+
+write_xlsx(summary_stats, 'results/summary_stats_ag_tls.xlsx')
