@@ -65,3 +65,16 @@ rule ratios_clin_dcis:
     shell:
         'Rscript {input.script} {input.density} {input.density_ki67} DCIS {input.clinical}'
         ' {wildcards.subset} {output.stats} {output.tests}'
+
+rule dens_grade_test:
+    output:
+        tests='results/significance_stroma_densgrade_{subset}.xlsx',
+    input:
+        density='data/cell_density_Stroma.tsv',
+        density_ki67='data/ki67_density.tsv',
+        clinical='data/clin_DBL_v_str_dens.tsv',
+        script='src/til_and_grade.R',
+    shell:
+        'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
+        ' {wildcards.subset} {output.tests}'
+
