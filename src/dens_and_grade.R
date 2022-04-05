@@ -144,7 +144,12 @@ clin_dens <- left_join(clinical, density, by = 't_number') %>%
 
 tests <- clin_dens %>%
   group_by(cell_type) %>%
-  summarise(test=tidy(coin::chisq_test(Cascon ~ grade_dens))) %>%
+  summarise(
+    test = tidy(coin::chisq_test(Cascon ~ grade_dens)),
+    n_control_low = sum(Cascon == 'control' & grade_dens == 'low'),
+    n_control_high = sum(Cascon == 'control' & grade_dens == 'high'),
+    n_case_low = sum(Cascon == 'case' & grade_dens == 'low'),
+    n_case_high = sum(Cascon == 'case' & grade_dens == 'high')) %>%
   unpack(test) %>%
   rename(nominal_p = p.value) %>%
   ungroup() %>%
