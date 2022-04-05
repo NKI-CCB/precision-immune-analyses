@@ -73,8 +73,21 @@ rule dens_grade_test:
         density='data/cell_density_Stroma.tsv',
         density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
-        script='src/til_and_grade.R',
+        script='src/dens_and_grade.R',
     shell:
         'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
         ' {wildcards.subset} {output.tests}'
 
+
+rule pathologist_scored_tils:
+    output:
+        tests='results/significance_til_density_{subset}.xlsx',
+    input:
+        density='data/cell_density_Stroma.tsv',
+        density_ki67='data/ki67_density.tsv',
+        clinical='data/clin_DBL_v_str_dens.tsv',
+        til_scores='data/20220324_TILscores_revised.xlsx',
+        script='src/til_stats.R',
+    shell:
+        'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
+        '  {wildcards.subset} {input.til_scores} {output.tests}'
