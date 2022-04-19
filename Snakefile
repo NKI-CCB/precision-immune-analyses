@@ -11,6 +11,9 @@ rule all:
         'plots/boxplot_dcis_erpos_her2neg_density_clinical_variables.pdf',
         'results/significance_stroma_ratio_all.xlsx',
         'results/significance_dcis_ratio_all.xlsx',
+        'plots/heatmap_density_Stroma.pdf',
+        'plots/heatmap_density_DCIS.pdf',
+        'results/significance_til_density_all.xlsx',
 
 rule boxplot_dens_clin_stroma:
     output:
@@ -91,3 +94,16 @@ rule pathologist_scored_tils:
     shell:
         'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
         '  {wildcards.subset} {input.til_scores} {output.tests}'
+
+rule clustering:
+    output:
+       'plots/heatmap_density_Stroma.pdf',
+       'plots/heatmap_density_DCIS.pdf',
+    input:
+        density_stroma='data/cell_density_Stroma.tsv',
+        density_dcis='data/cell_density_DCIS.tsv',
+        density_ki67='data/ki67_density.tsv',
+        clinical='data/clin_DBL_v_str_dens.tsv',
+        script='src/clustering.R',
+    shell:
+        'Rscript {input.script}'
