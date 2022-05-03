@@ -43,7 +43,7 @@ cell_type_labels_ki67 <- c(
 cell_type_labels <- c(cell_type_labels_vectra, cell_type_labels_ki67)
 
 parse_args <- function(args) {
-    arg_names <- c('cell_density', 'cell_density_ki67', 'area', 'clinical', 'subset', 
+    arg_names <- c('cell_density', 'area', 'clinical', 'subset', 
                    'til_scores', 'tests')
     stopifnot(length(args) == length(arg_names))
     args <- as.list(args)
@@ -71,12 +71,12 @@ density_vectra <- args$cell_density %>%
     read_tsv(col_types = cols(
         .default = col_double(),
         batch = col_factor(),
-        t_number = col_character())) %>%
+        ID = col_character())) %>%
     select(-batch)  %>%
     mutate(
         all_t_cells = na_as_zero(`CD3+_CD8+`) + na_as_zero(`CD3+_CD8-`) + na_as_zero(`CD3+_FOXP3+`),
         lymphocytes = all_t_cells + na_as_zero(`CD20+`))  %>%
-    pivot_longer(-t_number, names_to = "cell_type", values_to = "density") %>%
+    pivot_longer(-ID, names_to = "cell_type", values_to = "density") %>%
     dplyr::filter(cell_type != 'panCK+', cell_type != 'Other', !is.na(density))
 
 # Read and prepare clinical variables #
@@ -87,7 +87,7 @@ clin_vars_cat <- c(clin_boxplot_vars,
                    'margin', 'dom_growthpat', 'necrosis', 'calcs')                                                          
 clin_col_spec <- c(structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat))
 clin_col_spec[['ki67perc_t']] = col_double()
-clin_col_spec[['t_number']] <- col_character()
+clin_col_spec[['ID']] <- col_character()
 clin_col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
 clin_col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
 clin_col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
@@ -107,14 +107,13 @@ clin_vars_cat <- c(clin_vars_cat, 'ki67_cat')
 clin_boxplot_vars <- c(clin_boxplot_vars, 'ki67_cat')
 
 til_vars <- c('avgTIL', 'avgTIL_cat', 'avgTIL_cat_1', 'avgTIL_cat_5')
-til_scores <- read_xlsx(args$til_scores) %>%
-  mutate(
-    avgTIL = as.double(avgTIL),
-    avgTIL_cat = factor(avgTIL_cat, levels = c(0, 1, 2)),
-    avgTIL_cat_1 = factor(avgTIL_cat_1, levels = c(0, 1)),
-    avgTIL_cat_5 = factor(avgTIL_cat_5, levels = c(0, 1))) %>%
-  select(t_number, all_of(til_vars))
-clinical <- left_join(clinical, til_scores, by='t_number')
+til_scores <- read_tsv(args$til_scores, col_types=cols_only(
+    ID = col_character(),
+    avgTIL = col_double(),
+    avgTIL_cat = col_factor(levels = c('0', '1', '2')),
+    avgTIL_cat_1 = col_factor(levels = c('0', '1')),
+    avgTIL_cat_5 = col_factor(levels = c('0', '1'))))
+clinical <- left_join(clinical, til_scores, by='ID')
 
 if (args$subset == 'all') {
 } else if (args$subset == 'erpos_her2neg') {
@@ -128,21 +127,21 @@ if (args$subset == 'all') {
 ## One cell type's data lives in the clinical data frame
 
 density_ki67 <- clinical %>%
-    select(t_number, all_of(ki67_cd8_var)) %>%
+    select(ID, all_of(ki67_cd8_var)) %>%
     rename(density = !!ki67_cd8_var) %>%
     mutate(cell_type = 'CD8+_Ki67+') %>%
     dplyr::filter(!is.na(density))
 
 density <- bind_rows(density_vectra, density_ki67) %>%
     mutate(cell_type = factor(cell_type, levels = names(cell_type_labels))) %>%
-    dplyr::filter(t_number %in% clinical$t_number)
+    dplyr::filter(ID %in% clinical$ID)
 
 stopifnot(!is.na(density$cell_type))
 
-clin_dens <- left_join(clinical, density, by = 't_number')
+clin_dens <- left_join(clinical, density, by = 'ID')
 
 tests_cor <- clin_dens %>%
-  select(t_number, cell_type, density, avgTIL) %>%
+  select(ID, cell_type, density, avgTIL) %>%
   pivot_longer(avgTIL, names_to = "variable", values_to = "value") %>%
   group_by(cell_type, variable) %>%
   summarise(
@@ -186,10 +185,10 @@ cascon_test <- function(cascon, y) {
 }
 
 tests_surv <- clin_dens %>%
-  select(t_number, Cascon, all_of(til_vars)) %>%
+  select(ID, Cascon, all_of(til_vars)) %>%
   distinct() %>%
   summarise(across(all_of(til_vars), ~ cascon_test(Cascon, .))) %>%
-  pivot_longer(til_vars, names_to='til_variable',  values_to='test') %>%
+  pivot_longer(all_of(til_vars), names_to='til_variable',  values_to='test') %>%
   unpack(test) %>%
   ungroup() %>%
   mutate(fdr =  p.adjust(nominal_p, 'BH'))

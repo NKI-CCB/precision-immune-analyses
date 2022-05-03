@@ -22,11 +22,10 @@ rule boxplot_dens_clin_stroma:
         stats='results/summary_stats_stroma_{subset}.xlsx',
     input:
         density='data/cell_density_Stroma.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
         script='src/beeswarm_clin_dens.R',
     shell:
-        'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
+        'Rscript {input.script} {input.density} Tissue {input.clinical}'
         ' {wildcards.subset} {output.plot} {output.stats} {output.tests}'
 
 rule boxplot_dens_clin_dcis:
@@ -36,11 +35,10 @@ rule boxplot_dens_clin_dcis:
         stats='results/summary_stats_dcis_{subset}.xlsx',
     input:
         density='data/cell_density_DCIS.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
         script='src/beeswarm_clin_dens.R',
     shell:
-        'Rscript {input.script} {input.density} {input.density_ki67} DCIS {input.clinical}'
+        'Rscript {input.script} {input.density} DCIS {input.clinical}'
         ' {wildcards.subset} {output.plot} {output.stats} {output.tests}'
 
 rule ratios_clin_stroma:
@@ -49,11 +47,10 @@ rule ratios_clin_stroma:
         stats='results/summary_stats_stroma_ratio_{subset}.xlsx',
     input:
         density='data/cell_density_Stroma.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
         script='src/ratios.R',
     shell:
-        'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
+        'Rscript {input.script} {input.density} Tissue {input.clinical}'
         ' {wildcards.subset} {output.stats} {output.tests}'
 
 rule ratios_clin_dcis:
@@ -62,11 +59,10 @@ rule ratios_clin_dcis:
         stats='results/summary_stats_dcis_ratio_{subset}.xlsx',
     input:
         density='data/cell_density_DCIS.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
         script='src/ratios.R',
     shell:
-        'Rscript {input.script} {input.density} {input.density_ki67} DCIS {input.clinical}'
+        'Rscript {input.script} {input.density} DCIS {input.clinical}'
         ' {wildcards.subset} {output.stats} {output.tests}'
 
 rule dens_grade_test:
@@ -74,11 +70,10 @@ rule dens_grade_test:
         tests='results/significance_stroma_densgrade_{subset}.xlsx',
     input:
         density='data/cell_density_Stroma.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
         script='src/dens_and_grade.R',
     shell:
-        'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
+        'Rscript {input.script} {input.density} Tissue {input.clinical}'
         ' {wildcards.subset} {output.tests}'
 
 
@@ -87,12 +82,11 @@ rule pathologist_scored_tils:
         tests='results/significance_til_density_{subset}.xlsx',
     input:
         density='data/cell_density_Stroma.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
-        til_scores='data/20220324_TILscores_revised.xlsx',
+        til_scores='data/20220324_TILscores_revised.tsv',
         script='src/til_stats.R',
     shell:
-        'Rscript {input.script} {input.density} {input.density_ki67} Tissue {input.clinical}'
+        'Rscript {input.script} {input.density} Tissue {input.clinical}'
         '  {wildcards.subset} {input.til_scores} {output.tests}'
 
 rule clustering:
@@ -102,7 +96,6 @@ rule clustering:
     input:
         density_stroma='data/cell_density_Stroma.tsv',
         density_dcis='data/cell_density_DCIS.tsv',
-        density_ki67='data/ki67_density.tsv',
         clinical='data/clin_DBL_v_str_dens.tsv',
         script='src/clustering.R',
     shell:

@@ -76,7 +76,7 @@ col_spec <- c(
     structure(map(density_vars, ~ col_double()), names=density_vars),
     structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat),
     structure(map(clin_vars_cont, ~ col_double()), names=clin_vars_cont))
-col_spec[['t_number']] <- col_character()
+col_spec[['ID']] <- col_character()
 col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
 col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
 col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
@@ -92,20 +92,20 @@ clin <- read_tsv(
 # Calculate per area
 area_ki67 <- read_tsv('data/ki67_counts.tsv', col_types = cols_only(
         `Classifier Label` = col_character(),
-        t_number = col_character(),
+        ID = col_character(),
         area = col_double())) %>%
     dplyr::filter(`Classifier Label` == 'Tissue') %>%
     rename(area_ki67 = area) %>%
     distinct()
 
 area_vectra <- read_tsv('data/area_Stroma.tsv', col_types = cols_only(
-        t_number = col_character(),
+        ID = col_character(),
         area = col_double())) %>%
     rename(area_vectra = area)
 
 clin <- clin %>%
-    left_join(area_ki67, by='t_number') %>%
-    left_join(area_vectra, by='t_number') %>%
+    left_join(area_ki67, by='ID') %>%
+    left_join(area_vectra, by='ID') %>%
     mutate(
         ag_zone_t = ag_zone_t / area_vectra,
         TLS_GC_t = TLS_GC_t / area_ki67)

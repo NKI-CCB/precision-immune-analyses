@@ -43,7 +43,7 @@ cell_type_labels_ki67 <- c(
 cell_type_labels <- c(cell_type_labels_vectra, cell_type_labels_ki67)
 
 parse_args <- function(args) {
-    arg_names <- c('cell_density', 'cell_density_ki67', 'area', 'clinical', 'subset', 'stats',
+    arg_names <- c('cell_density', 'area', 'clinical', 'subset', 'stats',
                    'tests')
     stopifnot(length(args) == length(arg_names))
     args <- as.list(args)
@@ -71,12 +71,12 @@ density_vectra <- args$cell_density %>%
     read_tsv(col_types = cols(
         .default = col_double(),
         batch = col_factor(),
-        t_number = col_character())) %>%
+        ID = col_character())) %>%
     select(-batch)  %>%
     mutate(
         all_t_cells = na_as_zero(`CD3+_CD8+`) + na_as_zero(`CD3+_CD8-`) + na_as_zero(`CD3+_FOXP3+`),
         lymphocytes = all_t_cells + na_as_zero(`CD20+`))  %>%
-    pivot_longer(-t_number, names_to = "cell_type", values_to = "density") %>%
+    pivot_longer(-ID, names_to = "cell_type", values_to = "density") %>%
     dplyr::filter(cell_type != 'panCK+', cell_type != 'Other', !is.na(density))
 
 # Read and prepare clinical variables #
@@ -87,7 +87,7 @@ clin_vars_cat <- c(clin_boxplot_vars,
                    'margin', 'dom_growthpat', 'necrosis', 'calcs')                                                          
 clin_col_spec <- c(structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat))
 clin_col_spec[['ki67perc_t']] = col_double()
-clin_col_spec[['t_number']] <- col_character()
+clin_col_spec[['ID']] <- col_character()
 clin_col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
 clin_col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
 clin_col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
@@ -116,7 +116,7 @@ if (args$subset == 'all') {
 }
 
 clin_cat <- clinical %>%
-    select(t_number, Cascon, all_of(clin_vars_cat)) %>%
+    select(ID, Cascon, all_of(clin_vars_cat)) %>%
     pivot_longer(all_of(clin_vars_cat),
                  names_to = "clinical_variable",
                  values_to = "clinical_value",
@@ -125,14 +125,14 @@ clin_cat <- clinical %>%
 ## One cell type's data lives in the clinical data frame
 
 density_ki67 <- clinical %>%
-    select(t_number, all_of(ki67_cd8_var)) %>%
+    select(ID, all_of(ki67_cd8_var)) %>%
     rename(density = !!ki67_cd8_var) %>%
     mutate(cell_type = 'CD8+_Ki67+') %>%
     dplyr::filter(!is.na(density))
 
 density <- bind_rows(density_vectra, density_ki67) %>%
     mutate(cell_type = factor(cell_type, levels = names(cell_type_labels))) %>%
-    dplyr::filter(t_number %in% clinical$t_number)
+    dplyr::filter(ID %in% clinical$ID)
 
 stopifnot(!is.na(density$cell_type))
 
@@ -142,11 +142,11 @@ cell_type_combinations <- levels(density$cell_type) %>%
   map_dfr(~ tibble(cell_type1=.[[1]], cell_type2=.[[2]]))
 density_ratios <- cell_type_combinations %>%
   full_join(density, by=c(cell_type1='cell_type')) %>%
-  full_join(density, by=c(cell_type2='cell_type', t_number='t_number'), suffix=c('1', '2')) %>%
+  full_join(density, by=c(cell_type2='cell_type', ID='ID'), suffix=c('1', '2')) %>%
   mutate(ratio=density1/density2) %>%
   dplyr::filter(!is.na(ratio))
 
-clin_ratios <- left_join(clin_cat, density_ratios, by = 't_number')
+clin_ratios <- left_join(clin_cat, density_ratios, by = 'ID')
 
 #########################
 # Test for significance #

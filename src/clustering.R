@@ -13,7 +13,7 @@ for (label in labels) {
   dfSummary <- read.delim(paste("data/cell_density_", label, ".tsv", sep=""), stringsAsFactors = F, check.names = F)
   
   dfKi <- read.delim("data/ki67_density.tsv", stringsAsFactors = F, check.names = F)
-  ki_mapping <- match(dfSummary$t_number, dfKi$t_number)
+  ki_mapping <- match(dfSummary$ID, dfKi$ID)
   if (label == "DCIS") {
     dfSummary$`CD3+_KI67+` <- dfKi$`density_DCIS_CD8+_Ki67+`[ki_mapping]
   } else {
@@ -31,7 +31,7 @@ for (label in labels) {
   colnames(data)[which(colnames(data) == "CD3+_FOXP3+")] <- "FOXP3+ T-cells"
   colnames(data)[which(colnames(data) == "CD3+_KI67+")] <- "CD8+Ki67+ T-cells"
  
-  mapping <- match(dfSummary$t_number, clinical$t_number)
+  mapping <- match(dfSummary$ID, clinical$ID)
   
   pdf(paste("plots/heatmap_density_", label, ".pdf", sep=""), width=15, height=5)
   
