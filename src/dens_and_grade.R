@@ -82,7 +82,7 @@ density_vectra <- args$cell_density %>%
 
 clin_boxplot_vars <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn') 
 clin_vars_cat <- c(clin_boxplot_vars,
-                   'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
+                   'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
                    'margin', 'dom_growthpat', 'necrosis', 'calcs')                                                          
 clin_col_spec <- c(structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat))
 clin_col_spec[['ki67perc_t']] = col_double()

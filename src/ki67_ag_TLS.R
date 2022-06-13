@@ -63,23 +63,53 @@ non_par_test <- function(x, y) {
   rename(test, nominal_p = p.value)
 }
 
-density_vars <- c("lymphocytes", "all_t_cells", "CD20+", "CD3+_CD8-",
-                  "CD3+_CD8+", "CD3+_FOXP3+_NA", "CD68+", "density_Tissue_CD8._Ki67.")
+cell_type_labels_vectra <- c(
+    lymphocytes = "Lymphocytes",
+    all_t_cells = "All T-cells",
+    `CD20+` = "CD20+ B-cells",
+    `CD3+_CD8-` = "Helper T-cells",
+    `CD3+_CD8+` = "CD3+CD8+ T-cells",
+    `CD3+_FOXP3+` = "CD3+FOXP3+ T-cells",
+    `CD68+` = "CD68+ cells")
+cell_type_labels_ki67 <- c(
+    `CD8+_Ki67+` = "CD8+Ki67+ T-cells")
+cell_type_labels <- c(cell_type_labels_vectra, cell_type_labels_ki67)
+
+na_as_zero <- function (x) {
+    x[is.na(x)] <- 0
+    x
+}
+
+ki67_cd8_var <- paste0('density_Tissue_CD8._Ki67.')
+
+density_vectra <- 'data/cell_density_Stroma.tsv' %>%
+    read_tsv(col_types = cols(
+        .default = col_double(),
+        batch = col_factor(),
+        ID = col_character())) %>%
+    select(-batch)  %>%
+    mutate(
+        all_t_cells = na_as_zero(`CD3+_CD8+`) + na_as_zero(`CD3+_CD8-`) + na_as_zero(`CD3+_FOXP3+`),
+        lymphocytes = all_t_cells + na_as_zero(`CD20+`))  %>%
+    pivot_longer(-ID, names_to = "cell_type", values_to = "density") %>%
+    dplyr::filter(cell_type != 'panCK+', cell_type != 'Other', !is.na(density))
+
+
 clin_vars_cat <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn',
-                   'age_cat1', 'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
+                   'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
                    'margin', 'dom_growthpat', 'necrosis', 'calcs')
-clin_vars_cont <- c('ki67perc_t', 'ag_zone_t', 'TLS_GC_t')
+clin_vars_cont <- c('ki67perc_t', 'ag_zone_JS', 'ag_zone_MMA', 'TLS_GC_t')
 
 clin_vars <- c(clin_vars_cat, clin_vars_cont)
 
 col_spec <- c(
-    structure(map(density_vars, ~ col_double()), names=density_vars),
     structure(map(clin_vars_cat, ~ col_factor()), names=clin_vars_cat),
     structure(map(clin_vars_cont, ~ col_double()), names=clin_vars_cont))
 col_spec[['ID']] <- col_character()
 col_spec[['Cascon']] <- col_factor(levels=c('0', '1'))
 col_spec[['fibrosis_yn']] <- col_factor(levels=c('0', '1'))
 col_spec[['grade']] <- col_factor(levels=c('1', '2', '3'))
+col_spec[[ki67_cd8_var]] <- col_double()
 
 clin <- read_tsv(
         'data/clin_DBL_v_str_dens.tsv',
@@ -107,8 +137,27 @@ clin <- clin %>%
     left_join(area_ki67, by='ID') %>%
     left_join(area_vectra, by='ID') %>%
     mutate(
-        ag_zone_t = ag_zone_t / area_vectra,
+        ag_zone_t =  (clin$ag_zone_MMA + clin$ag_zone_JS) / (2 * area_vectra),
         TLS_GC_t = TLS_GC_t / area_ki67)
+
+density_ki67 <- clin %>%
+    select(ID, all_of(ki67_cd8_var)) %>%
+    rename(density = !!ki67_cd8_var) %>%
+    mutate(cell_type = 'CD8+_Ki67+') %>%
+    dplyr::filter(!is.na(density))
+
+density <- bind_rows(density_vectra, density_ki67) %>%
+    mutate(cell_type = factor(cell_type, levels = names(cell_type_labels))) %>%
+    dplyr::filter(ID %in% clin$ID) %>%
+    pivot_wider(
+      id_cols = ID,
+      names_from = cell_type,
+      names_prefix = 'density_',
+      values_from = density)
+
+density_vars <- setdiff(colnames(density), 'ID')
+
+clin <- left_join(clin, density, by = 'ID')
 
 # Ki67 #
 
