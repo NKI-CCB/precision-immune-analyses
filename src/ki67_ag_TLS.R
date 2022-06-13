@@ -98,7 +98,7 @@ density_vectra <- 'data/cell_density_Stroma.tsv' %>%
 clin_vars_cat <- c('Cascon', 'ER_status', 'grade', 'Her2status', 'COX2_status', 'fibrosis_yn',
                    'PR_status', 'clin_pres', 'Yearsto_iIBC_cat_cases', 'diameter_cat',
                    'margin', 'dom_growthpat', 'necrosis', 'calcs')
-clin_vars_cont <- c('ki67perc_t', 'ag_zone_JS', 'ag_zone_MMA', 'TLS_GC_t')
+clin_vars_cont <- c('ki67perc_t', 'ag_zone_JS', 'ag_zone_MMA', 'TLS_GC_JS', 'TLS_GC_MMA')
 
 clin_vars <- c(clin_vars_cat, clin_vars_cont)
 
@@ -137,8 +137,8 @@ clin <- clin %>%
     left_join(area_ki67, by='ID') %>%
     left_join(area_vectra, by='ID') %>%
     mutate(
-        ag_zone_t =  (clin$ag_zone_MMA + clin$ag_zone_JS) / (2 * area_vectra),
-        TLS_GC_t = TLS_GC_t / area_ki67)
+        ag_zone_t =  (ag_zone_MMA + ag_zone_JS) / (2 * area_vectra),
+        TLS_GC_t = (TLS_GC_MMA + TLS_GC_JS) / (2 * area_ki67))
 
 density_ki67 <- clin %>%
     select(ID, all_of(ki67_cd8_var)) %>%
