@@ -1,3 +1,4 @@
 Steps to make the plots:
- 1. Put the input file `clin_DBL_v_str_dens.tsv` in the data folder.
- 2. Make the plots: `Rscript src/beeswarm_clin_dens.R`
+ 1. Install R and the required packages. The exact version used are documented in `renv.lock`.
+ 2. Add the data files from https://doi.org/10.6084/m9.figshare.19698286 to the data directory.
+ 3. Run with `snakemake`.

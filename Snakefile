@@ -14,6 +14,7 @@ rule all:
         'plots/heatmap_density_Stroma.pdf',
         'plots/heatmap_density_DCIS.pdf',
         'results/significance_til_density_all.xlsx',
+        'results/significance_stroma_densgrade_all.xlsx',
 
 rule boxplot_dens_clin_stroma:
     output:
