@@ -1,3 +1,8 @@
+Code supporting our paper
+"Comprehensive multiplexed immune proﬁling of the ductal carcinoma in situ immune microenvironment regarding subsequent ipsilateral invasive breast cancer risk"
+published in the British Journal of Cancer (2022): https://doi.org/10.1038/s41416-022-01888-2.
+
+
 Steps to make the plots:
  1. Install R and the required packages. The exact version used are documented in `renv.lock`.
  2. Add the data files from https://doi.org/10.6084/m9.figshare.19698286 to the data directory.
